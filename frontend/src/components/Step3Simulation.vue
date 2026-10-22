@@ -527,6 +527,10 @@ const fetchRunStatus = async () => {
         phase.value = 2
         stopPolling()
         emit('update-status', 'completed')
+      } else if (data.runner_status === 'running' && checkPlatformsCompleted(data) && !isStopping.value) {
+        // All rounds are done and the env only idles for interviews, but a report needs a
+        // stopped run and this page has no Stop button: wrap up (close env, wait for Zep) now.
+        handleStopSimulation()
       }
     }
   } catch (err) {
@@ -688,11 +692,27 @@ watch(() => props.systemLogs?.length, () => {
   })
 })
 
-onMounted(() => {
+onMounted(async () => {
   addLog(t('log.step3Init'))
-  if (props.simulationId) {
-    doStartSimulation()
+  if (!props.simulationId) return
+  // Only step 2's start button launches a new run. Reloading this page (refresh, a code
+  // update, another device) shows the existing run instead of wiping it and starting over.
+  if (window.history.state?.startRun) {
+    window.history.replaceState({ ...window.history.state, startRun: false }, '')
+  } else {
+    await fetchRunStatus()
+    // Start only when no run exists; if the status fetch failed, keep polling rather than risk a wipe.
+    if (runStatus.value.runner_status !== 'idle') {
+      fetchRunStatusDetail()
+      if (phase.value !== 2) {
+        phase.value = 1
+        startStatusPolling()
+        startDetailPolling()
+      }
+      return
+    }
   }
+  doStartSimulation()
 })
 
 onUnmounted(() => {

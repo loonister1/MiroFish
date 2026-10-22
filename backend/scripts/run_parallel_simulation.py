@@ -160,6 +160,8 @@ from action_logger import SimulationLogManager, PlatformActionLogger
 try:
     from camel.models import ModelFactory
     from camel.types import ModelPlatformType
+    from app.utils.openai_chat_compat import preserve_gemini_thought_signatures
+    from app.utils.oasis_recsys_compat import limit_recsys_memory
     import oasis
     from oasis import (
         ActionType,
@@ -172,6 +174,8 @@ except ImportError as e:
     print(f"错误: 缺少依赖 {e}")
     print("请先安装: pip install oasis-ai camel-ai")
     sys.exit(1)
+
+limit_recsys_memory()
 
 
 # Twitter可用动作（不包含INTERVIEW，INTERVIEW只能通过ManualAction手动触发）
@@ -1031,10 +1035,10 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     
     print(f"{config_label} model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
     
-    return ModelFactory.create(
+    return preserve_gemini_thought_signatures(ModelFactory.create(
         model_platform=ModelPlatformType.OPENAI,
         model_type=llm_model,
-    )
+    ))
 
 
 def get_active_agents_for_round(

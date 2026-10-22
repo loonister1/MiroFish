@@ -338,7 +338,8 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
         # - completed: 运行完成，说明准备早就完成了
         # - stopped: 已停止，说明准备早就完成了
         # - failed: 运行失败（但准备是完成的）
-        prepared_statuses = ["ready", "preparing", "running", "completed", "stopped", "failed"]
+        # - stopping/paused: 运行被中断（如后端重启），start(force) 负责收尾后重启
+        prepared_statuses = ["ready", "preparing", "running", "stopping", "paused", "completed", "stopped", "failed"]
         if status in prepared_statuses and config_generated:
             # 获取文件统计信息
             profiles_file = os.path.join(simulation_dir, "reddit_profiles.json")
@@ -356,8 +357,8 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
                     state_data["status"] = "ready"
                     from datetime import datetime
                     state_data["updated_at"] = datetime.now().isoformat()
-                    with open(state_file, 'w', encoding='utf-8') as f:
-                        json.dump(state_data, f, ensure_ascii=False, indent=2)
+                    from ..utils.atomic_json import write_json_atomic
+                    write_json_atomic(state_file, state_data)
                     logger.info(f"自动更新模拟状态: {simulation_id} preparing -> ready")
                     status = "ready"
                 except Exception as e:

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 import threading
 from queue import Queue
 
+import httpx
 import pytest
 
 from app.services import zep_graph_memory_updater as updater_module
@@ -193,6 +194,63 @@ def test_pending_episode_wait_has_a_deadline(monkeypatch):
 
     with pytest.raises(TimeoutError, match="pending"):
         updater._wait_for_pending_episodes()
+
+
+def test_pending_episode_wait_outlasts_timeout_while_zep_makes_progress(monkeypatch):
+    updater = _updater(
+        monkeypatch,
+        lambda **_kwargs: SimpleNamespace(uuid_="episode-1"),
+    )
+    updater._pending_episode_uuids = ["episode-1", "episode-2", "episode-3"]
+    # Zep finishes one episode (in order) every other poll of the oldest pending one.
+    processed_after = {"episode-1": 2, "episode-2": 4, "episode-3": 6}
+    polls = []
+
+    def get_episode(uuid_):
+        polls.append(uuid_)
+        return SimpleNamespace(processed=len(polls) >= processed_after[uuid_])
+
+    updater.client.graph.episode.get = get_episode
+    # Each clock read advances 0.6s: the whole wait (4.2s) exceeds the 2s timeout, but no gap between completions does.
+    clock = iter(x * 0.6 for x in range(100))
+    monkeypatch.setattr(updater_module, "ZEP_INGESTION_WAIT_TIMEOUT_SECONDS", 2)
+    monkeypatch.setattr(updater_module.time, "time", lambda: next(clock))
+    monkeypatch.setattr(updater_module.time, "sleep", lambda _seconds: None)
+
+    updater._wait_for_pending_episodes()
+
+    assert updater._pending_episode_uuids == []
+    # Oldest-first polling stops at the first unprocessed episode instead of reading every pending one.
+    assert polls == ["episode-1", "episode-1", "episode-2", "episode-2", "episode-3", "episode-3"]
+
+
+def test_pending_episode_wait_survives_a_network_blip(monkeypatch):
+    updater = _updater(
+        monkeypatch,
+        lambda **_kwargs: SimpleNamespace(uuid_="episode-1"),
+    )
+    updater._pending_episode_uuids = ["episode-1"]
+    outcomes = iter([
+        httpx.ConnectError("[Errno 8] nodename nor servname provided, or not known"),
+        SimpleNamespace(processed=True),
+    ])
+
+    def get_episode(uuid_):
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    updater.client.graph.episode.get = get_episode
+    # Surface the error as if call_zep_read_with_retry had already used up its own retries.
+    monkeypatch.setattr(
+        updater_module, "call_zep_read_with_retry", lambda operation, **_kwargs: operation()
+    )
+    monkeypatch.setattr(updater_module.time, "sleep", lambda _seconds: None)
+
+    updater._wait_for_pending_episodes()
+
+    assert updater._pending_episode_uuids == []
 
 
 def test_explicit_graph_destruction_can_discard_a_stopped_failed_updater():

@@ -638,12 +638,15 @@ class GraphBuilderService:
 
         timeout = timeout or ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
         start_time = time.time()
+        # Large documents legitimately take longer than `timeout`; only give up when Zep stalls.
+        last_progress_time = start_time
+        last_percent = 0.0
         terminal_states = {"succeeded", "partial", "failed", "invalid", "canceled"}
 
         while True:
-            if time.time() - start_time > timeout:
+            if time.time() - last_progress_time > timeout:
                 raise TimeoutError(
-                    f"Zep batch {submission.batch_id} did not finish within {timeout}s"
+                    f"Zep batch {submission.batch_id} made no progress for {timeout}s"
                 )
 
             summary = call_zep_read_with_retry(
@@ -653,6 +656,8 @@ class GraphBuilderService:
             status = getattr(summary, "status", None)
             progress = getattr(summary, "progress", None)
             percent = float(getattr(progress, "percent_complete", 0) or 0) / 100
+            if percent > last_percent:
+                last_percent, last_progress_time = percent, time.time()
             if progress_callback:
                 completed = int(getattr(progress, "succeeded_items", 0) or 0)
                 progress_callback(

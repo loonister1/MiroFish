@@ -110,3 +110,11 @@ def test_zep_timeout_policy_is_not_exposed_in_env_example():
 
     assert "ZEP_REQUEST_TIMEOUT_SECONDS" not in contents
     assert "ZEP_INGESTION_TIMEOUT_SECONDS" not in contents
+
+
+def test_local_neo4j_replaces_zep_cloud_when_configured(monkeypatch):
+    local = object()
+    monkeypatch.setattr(zep.Config, "NEO4J_URI", "bolt://localhost:7687")
+    monkeypatch.setattr(zep, "get_graphiti_client", lambda: local)
+
+    assert zep.get_zep_client() is local

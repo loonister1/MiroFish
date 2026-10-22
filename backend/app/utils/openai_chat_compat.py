@@ -57,6 +57,57 @@ def create_chat_completion(
     return client.chat.completions.create(**kwargs)
 
 
+GEMINI_SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
+
+
+def preserve_gemini_thought_signatures(model: Any) -> Any:
+    """
+    Re-attach Gemini thought signatures that camel drops from replayed tool calls.
+
+    Gemini 3+ rejects a request whose earlier assistant tool call lacks the
+    `extra_content.google.thought_signature` it returned. camel rebuilds those
+    messages without it, so wrap the camel model's clients to remember each
+    signature by tool call id and put it back. Non-Gemini models are untouched.
+    """
+    if "generativelanguage.googleapis.com" not in str(getattr(model, "_url", "") or ""):
+        return model
+
+    # shortcut: grows by one entry per tool call for the process lifetime; fine for one simulation run.
+    signatures: Dict[str, str] = {}
+
+    def remember(response: Any) -> Any:
+        for choice in getattr(response, "choices", None) or []:
+            for call in getattr(choice.message, "tool_calls", None) or []:
+                extra = (getattr(call, "model_extra", None) or {}).get("extra_content") or {}
+                signature = (extra.get("google") or {}).get("thought_signature")
+                if signature:
+                    signatures[call.id] = signature
+        return response
+
+    def restore(messages: Any) -> None:
+        for message in messages or []:
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            for call in message.get("tool_calls") or []:
+                signature = signatures.get(call.get("id"), GEMINI_SKIP_THOUGHT_SIGNATURE)
+                call.setdefault("extra_content", {"google": {"thought_signature": signature}})
+
+    sync_create = model._client.chat.completions.create
+    async_create = model._async_client.chat.completions.create
+
+    def create(**kwargs: Any) -> Any:
+        restore(kwargs.get("messages"))
+        return remember(sync_create(**kwargs))
+
+    async def acreate(**kwargs: Any) -> Any:
+        restore(kwargs.get("messages"))
+        return remember(await async_create(**kwargs))
+
+    model._client.chat.completions.create = create
+    model._async_client.chat.completions.create = acreate
+    return model
+
+
 def extract_chat_completion_text(response: Any) -> str:
     """Extract plain text from chat completion response across SDK content shapes."""
     choices = getattr(response, "choices", None) or []

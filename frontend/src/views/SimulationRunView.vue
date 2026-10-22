@@ -245,7 +245,13 @@ const loadSimulationData = async () => {
   }
 }
 
+let graphFetchInFlight = false
+
 const loadGraph = async (graphId) => {
+  // A large graph can take minutes to fetch; stacking 30s refreshes on a pending one
+  // exhausts the browser's connections and stalls the run-status polling.
+  if (graphFetchInFlight) return
+  graphFetchInFlight = true
   // 当正在模拟时，自动刷新不显示全屏 loading，以免闪烁
   // 手动刷新或初始加载时显示 loading
   if (!isSimulating.value) {
@@ -263,6 +269,7 @@ const loadGraph = async (graphId) => {
   } catch (err) {
     addLog(t('log.graphLoadFailed', { error: err.message }))
   } finally {
+    graphFetchInFlight = false
     graphLoading.value = false
   }
 }

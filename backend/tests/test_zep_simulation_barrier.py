@@ -482,3 +482,19 @@ def test_shutdown_drain_failure_remains_failed_and_retryable(monkeypatch):
         SimulationRunner._cleanup_done = False
         SimulationRunner._graph_memory_enabled.pop(simulation_id, None)
         SimulationRunner._manual_stop_requests.discard(simulation_id)
+
+
+@pytest.mark.parametrize("status", ["stopping", "paused"])
+def test_interrupted_simulation_still_counts_as_prepared(tmp_path, monkeypatch, status):
+    # A backend restart can leave state.json at stopping/paused; start(force=True) must be able to recover it.
+    sim_dir = tmp_path / "sim-interrupted"
+    sim_dir.mkdir()
+    (sim_dir / "state.json").write_text(json.dumps({"status": status, "config_generated": True}))
+    (sim_dir / "simulation_config.json").write_text("{}")
+    (sim_dir / "reddit_profiles.json").write_text("[]")
+    (sim_dir / "twitter_profiles.csv").write_text("")
+    monkeypatch.setattr(simulation_api.Config, "OASIS_SIMULATION_DATA_DIR", str(tmp_path))
+
+    is_prepared, info = simulation_api._check_simulation_prepared("sim-interrupted")
+
+    assert is_prepared, info

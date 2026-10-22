@@ -31,7 +31,14 @@ class Config:
     
     # Zep配置
     ZEP_API_KEY = os.environ.get('ZEP_API_KEY')
-    
+
+    # Local graph memory (Graphiti on Neo4j); when set it replaces Zep Cloud.
+    # shortcut: services still require ZEP_API_KEY to be set (its value goes unused); drop those checks
+    # if Zep Cloud is retired for good.
+    NEO4J_URI = os.environ.get('NEO4J_URI')
+    NEO4J_USER = os.environ.get('NEO4J_USER', 'neo4j')
+    NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD')
+
     # 文件上传配置
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '../uploads')

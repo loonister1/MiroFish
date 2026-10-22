@@ -7,6 +7,7 @@ import os
 import re
 import traceback
 import threading
+from concurrent.futures import Future
 from contextlib import ExitStack, nullcontext
 from flask import request, jsonify
 from zep_cloud import NotFoundError
@@ -876,6 +877,34 @@ def list_tasks():
 
 # ============== 图谱数据接口 ==============
 
+_graph_data_fetches: dict = {}
+_graph_data_fetches_lock = threading.Lock()
+
+
+def _fetch_graph_data_shared(graph_id: str):
+    """Concurrent viewers of one graph share a single fetch.
+
+    Fetching a large graph pages through Zep hundreds of times; overlapping
+    auto-refreshes from several tabs or devices otherwise multiply that load
+    until Zep rate-limits every request.
+    """
+    with _graph_data_fetches_lock:
+        future = _graph_data_fetches.get(graph_id)
+        is_owner = future is None
+        if is_owner:
+            future = _graph_data_fetches[graph_id] = Future()
+    if is_owner:
+        try:
+            builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
+            future.set_result(builder.get_graph_data(graph_id))
+        except BaseException as error:
+            future.set_exception(error)
+        finally:
+            with _graph_data_fetches_lock:
+                del _graph_data_fetches[graph_id]
+    return future.result()
+
+
 @graph_bp.route('/data/<graph_id>', methods=['GET'])
 def get_graph_data(graph_id: str):
     """
@@ -888,9 +917,8 @@ def get_graph_data(graph_id: str):
                 "error": t('api.zepApiKeyMissing')
             }), 500
         
-        builder = GraphBuilderService(api_key=Config.ZEP_API_KEY)
-        graph_data = builder.get_graph_data(graph_id)
-        
+        graph_data = _fetch_graph_data_shared(graph_id)
+
         return jsonify({
             "success": True,
             "data": graph_data

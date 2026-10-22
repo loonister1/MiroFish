@@ -14,6 +14,8 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    // The ngrok tunnel used to share the app (password-protected by its ngrok traffic policy).
+    allowedHosts: ['nectar-unrivaled-spindle.ngrok-free.dev'],
     proxy: {
       '/api': {
         target: 'http://localhost:5001',

@@ -19,6 +19,7 @@ from enum import Enum
 from queue import Queue
 
 from ..config import Config
+from ..utils.atomic_json import write_json_atomic
 from ..utils.logger import get_logger
 from ..utils.locale import get_locale, set_locale
 from ..utils.zep import (
@@ -362,8 +363,7 @@ class SimulationRunner:
         
         data = state.to_detail_dict()
         
-        with open(state_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        write_json_atomic(state_file, data)
         
         cls._run_states[state.simulation_id] = state
     

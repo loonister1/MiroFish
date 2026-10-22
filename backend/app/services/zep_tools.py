@@ -17,7 +17,7 @@ from zep_cloud import NotFoundError
 from ..config import Config
 from ..utils.logger import get_logger
 from ..utils.llm_client import LLMClient
-from ..utils.locale import get_locale, t
+from ..utils.locale import get_language_instruction, get_locale, t
 from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
 from ..utils.zep import (
     call_zep_read_with_retry,
@@ -1107,6 +1107,7 @@ class ZepToolsService:
 3. 子问题应该与模拟场景相关
 4. 返回JSON格式：{"sub_queries": ["子问题1", "子问题2", ...]}"""
 
+        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
         user_prompt = f"""模拟需求背景：
 {simulation_requirement}
 
@@ -1589,6 +1590,7 @@ class ZepToolsService:
     "reasoning": "选择理由说明"
 }"""
 
+        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
         user_prompt = f"""采访需求：
 {interview_requirement}
 
@@ -1651,6 +1653,7 @@ class ZepToolsService:
 
 返回JSON格式：{"questions": ["问题1", "问题2", ...]}"""
 
+        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
         user_prompt = f"""采访需求：{interview_requirement}
 
 模拟背景：{simulation_requirement if simulation_requirement else "未提供"}
@@ -1710,6 +1713,7 @@ class ZepToolsService:
 - {quote_instruction}
 - 可以使用**加粗**标记关键词，但不要使用其他Markdown语法"""
 
+        system_prompt = f"{system_prompt}\n\n{get_language_instruction()}"
         user_prompt = f"""采访主题：{interview_requirement}
 
 采访内容：

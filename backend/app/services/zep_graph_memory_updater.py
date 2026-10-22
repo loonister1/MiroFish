@@ -17,6 +17,7 @@ from ..utils.zep import (
     ZEP_INGESTION_WAIT_TIMEOUT_SECONDS,
     call_zep_read_with_retry,
     get_zep_client,
+    is_retryable_zep_error,
 )
 
 logger = get_logger('mirofish.zep_graph_memory_updater')
@@ -597,7 +598,7 @@ class ZepGraphMemoryUpdater:
                     del self._platform_buffers[platform][:processed_count]
 
     def _wait_for_pending_episodes(self, *, deadline: float | None = None) -> None:
-        pending = set(self._pending_episode_uuids)
+        pending = list(dict.fromkeys(self._pending_episode_uuids))
         if not pending:
             return
 
@@ -609,13 +610,26 @@ class ZepGraphMemoryUpdater:
                     f"Zep simulation ingestion timed out with {len(pending)} "
                     "episode(s) pending"
                 )
-            for episode_uuid in list(pending):
-                episode = call_zep_read_with_retry(
-                    lambda: self.client.graph.episode.get(uuid_=episode_uuid),
-                    operation_name=f"poll simulation episode {episode_uuid}",
-                )
-                if getattr(episode, "processed", False):
-                    pending.remove(episode_uuid)
+            # Zep ingests a graph's episodes in send order, so poll oldest-first and stop at the
+            # first unprocessed one; reading every pending episode each cycle trips rate limits.
+            while pending:
+                episode_uuid = pending[0]
+                try:
+                    episode = call_zep_read_with_retry(
+                        lambda: self.client.graph.episode.get(uuid_=episode_uuid),
+                        operation_name=f"poll simulation episode {episode_uuid}",
+                    )
+                except Exception as error:
+                    if not is_retryable_zep_error(error):
+                        raise
+                    # A brief network outage must not fail a finished run; the stall deadline still bounds it.
+                    logger.warning(f"Zep episode poll failed ({error}); still waiting on {len(pending)} episode(s)")
+                    break
+                if not getattr(episode, "processed", False):
+                    break
+                pending.pop(0)
+                # A long run's backlog legitimately outlasts the timeout; only give up when Zep stalls.
+                deadline = time.time() + ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
             if pending:
                 time.sleep(3)
         self._pending_episode_uuids = []

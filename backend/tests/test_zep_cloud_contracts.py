@@ -433,6 +433,31 @@ def test_batch_wait_times_out_while_status_remains_nonterminal(monkeypatch):
         )
 
 
+def test_batch_wait_keeps_waiting_while_zep_makes_progress(monkeypatch):
+    summaries = iter([
+        SimpleNamespace(status="processing", progress=SimpleNamespace(percent_complete=pct, succeeded_items=0))
+        for pct in (10, 20, 30)
+    ] + [SimpleNamespace(status="succeeded", progress=SimpleNamespace(percent_complete=100, succeeded_items=1))])
+    builder = object.__new__(GraphBuilderService)
+    builder.client = SimpleNamespace(
+        batch=SimpleNamespace(
+            get=lambda **_kwargs: next(summaries),
+            list_items=lambda **_kwargs: SimpleNamespace(
+                items=[SimpleNamespace(
+                    sequence_index=0, status="succeeded", episode_uuid="episode-1", source_uuid="episode-1",
+                )],
+                next_cursor=None,
+            ),
+        )
+    )
+    # Each clock read advances 0.6s: total wait exceeds timeout=1, but no single gap without progress does.
+    clock = iter(x * 0.6 for x in range(100))
+    monkeypatch.setattr(graph_builder_module.time, "time", lambda: next(clock))
+    monkeypatch.setattr(graph_builder_module.time, "sleep", lambda _seconds: None)
+
+    assert builder._wait_for_batch(BatchSubmission("batch-1", "operation", [], 1), timeout=1) == ["episode-1"]
+
+
 def test_installed_sdk_serializes_the_batch_325_contract():
     requests = []
 

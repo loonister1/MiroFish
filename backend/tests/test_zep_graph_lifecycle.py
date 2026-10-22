@@ -416,3 +416,48 @@ def test_graph_reset_and_memory_start_cannot_cross_between_delete_and_clear(
     assert results["start"][1] == 409
     assert runner_called == []
     assert project.graph_id is None
+
+
+def test_concurrent_graph_data_requests_share_one_zep_fetch(monkeypatch):
+    fetch_started = threading.Event()
+    release_fetch = threading.Event()
+    fetches = []
+
+    class Builder:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_graph_data(self, graph_id):
+            fetches.append(graph_id)
+            fetch_started.set()
+            assert release_fetch.wait(timeout=2)
+            return {"graph_id": graph_id, "nodes": [], "edges": []}
+
+    monkeypatch.setattr(graph_api, "GraphBuilderService", Builder)
+    monkeypatch.setattr(graph_api.Config, "ZEP_API_KEY", "test-key")
+    app = Flask(__name__)
+    results = []
+
+    def request_graph():
+        with app.test_request_context("/api/graph/data/graph-1"):
+            results.append(_json_result(graph_api.get_graph_data("graph-1")))
+
+    first = threading.Thread(target=request_graph)
+    first.start()
+    assert fetch_started.wait(timeout=1)
+    second = threading.Thread(target=request_graph)
+    second.start()
+    second.join(timeout=0.1)
+    assert second.is_alive()
+
+    release_fetch.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    assert fetches == ["graph-1"]
+    assert [status for _body, status in results] == [200, 200]
+    assert results[0][0]["data"] == results[1][0]["data"]
+
+    # A request after the shared fetch finishes gets fresh data, not a cached copy.
+    request_graph()
+    assert fetches == ["graph-1", "graph-1"]

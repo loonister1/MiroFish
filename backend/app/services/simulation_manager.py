@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 
 from ..config import Config
+from ..utils.atomic_json import write_json_atomic
 from ..utils.logger import get_logger
 from .zep_entity_reader import ZepEntityReader, FilteredEntities
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
@@ -162,8 +163,7 @@ class SimulationManager:
         
         state.updated_at = datetime.now().isoformat()
         
-        with open(state_file, 'w', encoding='utf-8') as f:
-            json.dump(state.to_dict(), f, ensure_ascii=False, indent=2)
+        write_json_atomic(state_file, state.to_dict())
         
         self._simulations[state.simulation_id] = state
     

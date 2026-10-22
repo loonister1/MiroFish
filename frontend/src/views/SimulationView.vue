@@ -163,7 +163,8 @@ const handleNextStep = (params = {}) => {
   // 构建路由参数
   const routeParams = {
     name: 'SimulationRun',
-    params: { simulationId: currentSimulationId.value }
+    params: { simulationId: currentSimulationId.value },
+    state: { startRun: true }  // Step 3 starts a run only when arriving from this button
   }
   
   // 如果有自定义轮数，通过 query 参数传递
